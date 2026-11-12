@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Nested;
@@ -122,6 +123,77 @@ class InMemoryVersionedStoreTest {
     }
 
     @Nested
+    class Snapshots {
+
+        @Test
+        void doesNotSeeWritesMadeAfterIt() {
+            store.put("a", "1");
+            store.put("b", "2");
+            var snapshot = store.snapshot();
+
+            store.put("a", "changed");
+            store.remove("b");
+            store.put("c", "new");
+
+            assertEquals(2, snapshot.version());
+            assertEquals(Optional.of("1"), snapshot.get("a"));
+            assertEquals(Optional.of("2"), snapshot.get("b"));
+            assertEquals(Optional.empty(), snapshot.get("c"));
+            // asMap is first called after the writes.
+            assertEquals(Map.of("a", "1", "b", "2"), snapshot.asMap());
+            assertEquals(Map.of("a", "changed", "c", "new"), store.snapshot().asMap());
+        }
+
+        @Test
+        void asMapIsTheSameBeforeAndAfterLaterWrites() {
+            store.put("a", "1");
+            var snapshot = store.snapshot();
+            var before = snapshot.asMap();
+
+            store.put("a", "2");
+            store.put("b", "3");
+
+            assertEquals(Map.of("a", "1"), before);
+            assertEquals(before, snapshot.asMap());
+        }
+
+        @Test
+        void asMapCannotBeModified() {
+            store.put("a", "1");
+            var map = store.snapshot().asMap();
+
+            assertThrows(UnsupportedOperationException.class, () -> map.put("b", "2"));
+            assertThrows(UnsupportedOperationException.class, () -> map.remove("a"));
+            assertThrows(UnsupportedOperationException.class, map::clear);
+            assertThrows(UnsupportedOperationException.class, () -> map.entrySet().iterator().next().setValue("x"));
+            assertEquals(Map.of("a", "1"), store.snapshot().asMap());
+        }
+
+        @Test
+        void removedKeysAreAbsent() {
+            store.put("a", "1");
+            store.put("b", "2");
+            store.remove("a");
+
+            var snapshot = store.snapshot();
+
+            assertEquals(Map.of("b", "2"), snapshot.asMap());
+            assertEquals(Optional.empty(), snapshot.get("a"));
+        }
+
+        @Test
+        void snapshotOfTheEmptyStoreStaysEmpty() {
+            var snapshot = store.snapshot();
+
+            store.put("a", "1");
+
+            assertEquals(0, snapshot.version());
+            assertEquals(Map.of(), snapshot.asMap());
+            assertEquals(Optional.empty(), snapshot.get("a"));
+        }
+    }
+
+    @Nested
     class ChangesSince {
 
         @Test
@@ -160,5 +232,16 @@ class InMemoryVersionedStoreTest {
         void rejectsNegativeVersions() {
             assertThrows(IllegalArgumentException.class, () -> store.changesSince(-1));
         }
+    }
+
+    @Test
+    void rejectsNulls() {
+        assertThrows(NullPointerException.class, () -> store.put(null, "v"));
+        assertThrows(NullPointerException.class, () -> store.put("k", null));
+        assertThrows(NullPointerException.class, () -> store.remove(null));
+        assertThrows(NullPointerException.class, () -> store.get(null));
+        assertThrows(NullPointerException.class, () -> store.getAt(null, 0));
+        assertThrows(NullPointerException.class, () -> store.snapshot().get(null));
+        assertEquals(0, store.currentVersion(), "a rejected write must not use up a version");
     }
 }

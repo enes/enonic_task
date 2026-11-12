@@ -1,5 +1,7 @@
 package com.enonic.assignment.store;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,7 +130,7 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
 
     @Override
     public Snapshot<K, V> snapshot() {
-        return null;
+        return new PointInTimeSnapshot(version);
     }
 
     /**
@@ -137,6 +139,12 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
     private Optional<V> valueAt(K key, long atVersion) {
         var history = histories.get(key);
         return history == null ? Optional.empty() : history.valueAt(atVersion);
+    }
+
+    private Map<K, V> materialize(long atVersion) {
+        var result = new HashMap<K, V>();
+        histories.forEach((key, history) -> history.valueAt(atVersion).ifPresent(value -> result.put(key, value)));
+        return Map.copyOf(result);
     }
 
     /**
@@ -175,6 +183,46 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
                 case Change.Put<K, V>(_, _, var value) -> Optional.of(value);
                 case Change.Remove<K, V> _ -> Optional.empty();
             };
+        }
+    }
+
+    private final class PointInTimeSnapshot implements Snapshot<K, V> {
+
+        private final long atVersion;
+
+        /**
+         * Built on first use. Two threads may both build it; the results are equal and immutable.
+         */
+        private volatile Map<K, V> map;
+
+        PointInTimeSnapshot(long atVersion) {
+            this.atVersion = atVersion;
+        }
+
+        @Override
+        public long version() {
+            return atVersion;
+        }
+
+        @Override
+        public Optional<V> get(K key) {
+            Objects.requireNonNull(key, "key");
+            return valueAt(key, atVersion);
+        }
+
+        @Override
+        public Map<K, V> asMap() {
+            var result = map;
+            if (result == null) {
+                result = materialize(atVersion);
+                map = result;
+            }
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "Snapshot@" + atVersion;
         }
     }
 }
