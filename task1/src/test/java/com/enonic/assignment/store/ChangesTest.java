@@ -1,17 +1,84 @@
 package com.enonic.assignment.store;
 
+import static java.util.stream.Collectors.toSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
 class ChangesTest {
+
+    @Test
+    void describesAPut() {
+        assertEquals("#7 put user:42 = Alice", Changes.describe(new Change.Put<>(7, "user:42", "Alice")));
+    }
+
+    @Test
+    void describesARemove() {
+        assertEquals("#8 remove user:42", Changes.describe(new Change.Remove<>(8, "user:42")));
+    }
+
+    @Test
+    void describeDoesNotDependOnTheDefaultLocale() {
+        var before = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("ar-EG")); // %d would print Arabic-Indic digits here
+        try {
+            assertEquals("#7 put user:42 = Alice", Changes.describe(new Change.Put<>(7, "user:42", "Alice")));
+            assertEquals("#8 remove user:42", Changes.describe(new Change.Remove<>(8, "user:42")));
+        } finally {
+            Locale.setDefault(before);
+        }
+    }
+
+    @Test
+    void describeUsesToStringOfKeyAndValue() {
+        assertEquals("#3 put 42 = [1, 2]", Changes.describe(new Change.Put<>(3, 42, List.of(1, 2))));
+    }
+
+    @Test
+    void describeKeepsLineBreaksInAPutOnOneLine() {
+        assertEquals("#1 put user:42 = Alice\\nBob", Changes.describe(new Change.Put<>(1, "user:42", "Alice\nBob")));
+        assertEquals("#2 put a\\r\\nb = x\\u2028y\\u0085z", Changes.describe(new Change.Put<>(2, "a\r\nb", "x\u2028y\u0085z")));
+    }
+
+    @Test
+    void describeKeepsLineBreaksInARemoveOnOneLine() {
+        assertEquals("#3 remove user:\\n42", Changes.describe(new Change.Remove<>(3, "user:\n42")));
+    }
+
+    @Test
+    void describeLeavesBackslashesAsTheyAre() {
+        assertEquals("#4 put path = C:\\temp", Changes.describe(new Change.Put<>(4, "path", "C:\\temp")));
+    }
+
+    @Test
+    void describeRejectsNull() {
+        assertThrows(NullPointerException.class, () -> Changes.describe(null));
+    }
+
+    /**
+     * {@code describe} has no default branch, so a third kind of change does not compile until it is
+     * handled there. If this test fails, add an example of the new kind here and check its format.
+     */
+    @Test
+    void everyKindOfChangeHasAnExample() {
+        List<Change<String, String>> oneOfEachKind = List.of(new Change.Put<>(1, "k", "v"), new Change.Remove<>(2, "k"));
+
+        assertEquals(
+                Set.of(Change.class.getPermittedSubclasses()),
+                oneOfEachKind.stream().map(Object::getClass).collect(toSet()));
+        assertEquals(
+                List.of("#1 put k = v", "#2 remove k"),
+                oneOfEachKind.stream().map(Changes::describe).toList());
+    }
 
     @Test
     void latestByKeyKeepsTheLastChangeForEachKey() {
