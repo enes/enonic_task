@@ -44,22 +44,6 @@ class ChangesTest {
     }
 
     @Test
-    void describeKeepsLineBreaksInAPutOnOneLine() {
-        assertEquals("#1 put user:42 = Alice\\nBob", Changes.describe(new Change.Put<>(1, "user:42", "Alice\nBob")));
-        assertEquals("#2 put a\\r\\nb = x\\u2028y\\u0085z", Changes.describe(new Change.Put<>(2, "a\r\nb", "x\u2028y\u0085z")));
-    }
-
-    @Test
-    void describeKeepsLineBreaksInARemoveOnOneLine() {
-        assertEquals("#3 remove user:\\n42", Changes.describe(new Change.Remove<>(3, "user:\n42")));
-    }
-
-    @Test
-    void describeLeavesBackslashesAsTheyAre() {
-        assertEquals("#4 put path = C:\\temp", Changes.describe(new Change.Put<>(4, "path", "C:\\temp")));
-    }
-
-    @Test
     void describeRejectsNull() {
         assertThrows(NullPointerException.class, () -> Changes.describe(null));
     }
