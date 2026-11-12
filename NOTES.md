@@ -3,6 +3,7 @@
 | Task | What                               | Run                          | Time spent |
 |------|------------------------------------|------------------------------|------------|
 | 1    | Versioned key-value store          | `cd task1 && ./gradlew test` | 150 min    |
+| 2    | XP app with a Java backend         | `cd task2 && ./gradlew test` | 120 min    |
 | 3    | Code review with reproducing tests | `cd task3 && ./gradlew test` | 40 min     |
 
 ---
@@ -93,6 +94,138 @@ keeps only what it contains, and `nextVersion` tells the caller where to continu
 ### What I would do next
 
 - Delete versions that nobody can ask for anymore. Today the store only grows.
+
+## Task 2: Enonic XP app
+
+How to build, deploy and call the app is in [task2/README.md](task2/README.md). This section is the
+reasoning.
+
+### Assumptions and decisions
+
+- **The content at the path is counted**, with all its descendants. The assignment's example has
+  `portal:site: 1` for `path=/mysite`, so the site itself is included. `/` is not a content item,
+  so for `path=/` only the descendants are counted.
+- **400 for bad input:** a missing or blank `path`, a `path` that does not start with `/`, a branch
+  other than `draft` or `master`, a malformed project name. `ContentPath.from` accepts the first
+  two silently: `""` becomes the root and `mysite` becomes `/mysite`. So `InventoryRequest` checks
+  them first.
+- **404 for a path or a project that does not exist.** XP throws `ContentNotFoundException` or
+  `RepositoryNotFoundException`; both extend `NotFoundException`, and the bean catches that. A path
+  the caller may not read is also a 404, so the caller does not learn that it exists.
+- **Expected failures are results, not exceptions.** The bean returns `Success` or `Failure`, and
+  the controller turns the status into an HTTP code. An unexpected error is not caught; XP answers
+  500.
+- **The test dependencies differ from the assignment's block.** Mockito is 5.24.0, not 5.17.0: with
+  5.17.0 every bean test fails on Java 25 with "Java 25 (69) is not supported by the current
+  version of Byte Buddy". `com.enonic.xp:testing` is added for the controller test, which the task
+  does not ask for; it runs the real controller without a server. It brings JUnit 6.1.3, so the
+  build file says 6.1.3 and not 5.12.2. Both versions are the ones XP 8.1.2 itself uses
+  (`gradle/libs.versions.toml`).
+- **The project comes from the official `starter-vanilla`.** I removed what this app does not use:
+  the empty folders, `cms/cms.yaml`, the icon and the licence file.
+
+### Counting
+
+`InventoryBean` loads the content at the path with `getByPath`, to learn its type and whether it
+exists. Then it sends one `ContentQuery` with `parentPath`, `recursive(true)`, `size(0)` and a
+`TermsAggregationQuery` on the `type` field. The index does the counting and no descendant is
+loaded. XP counts per type the same way in `ContentDependenciesResolver`
+(`modules/core/core-content`).
+
+- A terms aggregation returns only 10 types unless told otherwise
+  (`TermsAggregationQuery.TERM_DEFAULT_SIZE`), so `byType` would silently miss types. The query
+  asks for all of them.
+- At a million items it is still one query. The memory in the app is one entry per content type,
+  not per content item.
+- The item at the path and its descendants are read by two calls, so a write between them can make
+  the numbers differ by one. I accept that for a report.
+- The counts are what the caller may read. For an administrator that is everything on `draft`.
+- On `master` XP also hides content whose publish time has not started or has ended, for every
+  user (`AbstractContentCommand.shouldFilterScheduledPublished` in `modules/core/core-content`).
+  Such content is not counted, and a path to it is a 404. I kept this default; the context
+  attribute `ignorePublishTimes` would turn it off.
+
+### Exploration questions
+
+**1. `__.newBean("your.Class")`.** All classes named in this answer are in
+`modules/script/script-impl`.
+
+- **What `__` is.** XP wraps every script in a function that has a parameter named `__`, and passes
+  a `ScriptFunctions` object for it (`ScriptExecutorImpl`).
+- **How the class is created.** `__.newBean` calls `ScriptBeanFactoryImpl.newBean`, which loads the
+  class with the class loader of my app and calls its no-argument constructor. So every call
+  creates a new object.
+- **Who calls `initialize`.** The same method: if the object is a `ScriptBean`, it calls
+  `initialize(beanContext)` right after creating it.
+- **How `getService` finds the service.** `BeanContextImpl.getService` returns a `ServiceRefImpl`
+  and looks nothing up yet. Only `ServiceRefImpl.get()` asks OSGi for the service, through the
+  `BundleContext` of my app.
+- **Why a `Supplier`.** An OSGi service can go away and come back while the bean exists, for
+  example when its bundle restarts. A lookup at the moment of use always gives the current service,
+  so my bean keeps the supplier and calls `get()` when it counts.
+
+**2. `ContentService` without a `Context`.**
+
+- **What happens.** For this endpoint in my sandbox, the request context has the HTTP session but
+  no repository and no branch (`ContextFilter`, `modules/web/web-impl`). A content call then fails
+  in the node layer with "repositoryId is required" (`InternalContext`, `modules/core/core-repo`).
+  I removed the context once to see it: the endpoint answered 500 with that message.
+- **Which user.** The user of the session, or an unauthenticated user if nobody is logged in
+  (`ContextImpl.getAuthInfo()`, `modules/core/core-api`). My bean copies the current context and
+  adds only the repository and the branch, so the user stays the same; a unit test checks this.
+- **Permissions.** I did nothing extra. XP filters by the user of the context: content the caller
+  cannot read is not counted, and a path the caller cannot read is a 404.
+- **Was it the right choice.** I think so. Only `role:system.admin` can call the endpoint, so an
+  administrator context would change nothing today, but it would leak counts on the day someone
+  adds a weaker role to `allow`.
+
+**3. The closest library is `lib-content`** (`modules/lib/lib-content`: `QueryContentHandler`,
+`BaseContextHandler` and `lib/xp/content.ts`). Copied: the shape of a handler. It is a `ScriptBean`
+with setters and one `execute` method, it gets `ContentService` from the `BeanContext`, and it
+returns a `MapSerializable`. On the JavaScript side I use the same `__.newBean`, `__.nullOrValue`
+and `__.toNativeObject` calls. Done differently: lib-content runs in whatever context the caller
+has and leaves switching to `lib-context` (`ContextHandlerBean`). My bean sets the repository and
+the branch itself, because the endpoint takes them as parameters, and a controller that forgot to
+wrap the call would fail as in question 2. Also, `BaseContextHandler` calls `get()` on the supplier
+inside `initialize`; my bean keeps the supplier and calls `get()` when it is used.
+
+### Bonus: `node.pushed` listener
+
+`PushedNodesLogger` is a `@Component(immediate = true)` that implements `EventListener` and logs how
+many nodes each `node.pushed` event affected.
+
+- **What I had to add to the build: nothing.** The `com.enonic.xp.app` Gradle plugin builds the jar
+  with bnd, and bnd turns the annotation into
+  `OSGI-INF/com.enonic.assignment.inventory.PushedNodesLogger.xml` and a `Service-Component` header
+  in the manifest. The annotation and SLF4J are already on the compile classpath through
+  `core-api`. On the running XP, `http://localhost:2609/osgi.component` shows the component as
+  `ACTIVE`.
+- **It fires on every cluster node, not only the one that did the push.** `NodeEvents`
+  (`modules/core/core-repo`) builds node events with `distributed(true)`. `ClusterEventSender`
+  (`modules/core/core-event`) sends distributed events to the other nodes, and
+  `ClusterEventReceiver` publishes them there with `localOrigin(false)`. So the listener of every
+  node runs once per push. `event.isLocalOrigin()` tells whether this node did the push, and my log
+  line says which case it was. I could only run a single node.
+
+After I published one content item in Content Studio, the log of XP had this line:
+`node.pushed: 1 node(s) affected, pushed on this cluster node`.
+
+### Two things I ran into
+
+- **XP does not start when the OS locale is Turkish.** `IndexResourceType.getName()`
+  (`modules/core/core-api`) lower-cases without a locale, so `MAPPING` becomes `mappıng` with a
+  dotless ı. `DefaultIndexResourceProvider` (`modules/core/core-repo`) builds a file name from it,
+  and that file does not exist. I start XP with `-Duser.language=en -Duser.country=US`.
+- **There is no XP 8.1.2 SDK for Intel Macs**, only for Apple silicon, so
+  `enonic sandbox create -v 8.1.2` fails there. I unpacked the generic XP distribution with a local
+  JDK 25 into the folder where the CLI expects an SDK. After that `enonic sandbox start` and
+  `enonic project deploy` work as usual.
+
+### What was verified on a running XP
+
+Against XP 8.1.2 with Content Studio and a project `default`: every row of the example table in
+`task2/README.md`. The unit tests do not cover HTTP routing or the access check; those I saw only
+on the running XP.
 
 ## Task 3: Code review
 
