@@ -1,0 +1,8 @@
+kind: "API"
+title: "Content inventory"
+allow:
+  - "role:system.admin"
+# Without a mount XP answers 404 "API [...] is not mounted" (SlashApiHandler.verifyRequestMounted).
+# "web" is the XP port 8080; "management" would be port 4848.
+mount:
+  - "web"
