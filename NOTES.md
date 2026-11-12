@@ -1,8 +1,9 @@
 # Notes
 
-| Task | What                      | Run                          | Time spent |
-|------|---------------------------|------------------------------|------------|
-| 1    | Versioned key-value store | `cd task1 && ./gradlew test` | 150 min    |
+| Task | What                               | Run                          | Time spent |
+|------|------------------------------------|------------------------------|------------|
+| 1    | Versioned key-value store          | `cd task1 && ./gradlew test` | 150 min    |
+| 3    | Code review with reproducing tests | `cd task3 && ./gradlew test` | 40 min     |
 
 ---
 
