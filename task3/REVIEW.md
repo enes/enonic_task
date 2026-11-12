@@ -121,9 +121,7 @@ is a stub that throws, as the task allows.
 ## 10. A fixed pool of 4 threads
 
 - **Where:** `executor = Executors.newFixedThreadPool(4)`.
-- **What goes wrong:** Nothing breaks, but I would ask why 4. The number is not explained. The pool is
-  created even if nobody exports, and its threads are not stopped unless `exportAll` runs, so the JVM
-  cannot exit.
+- **What goes wrong:** Nothing breaks, but I would ask why 4. The number is not explained.
 - **Severity:** Low.
 - **Fix I would ask for:** For blocking file work, one virtual thread per task
   (`Executors.newVirtualThreadPerTaskExecutor()`): there is no size to choose and no shared pool to
