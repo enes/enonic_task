@@ -1,0 +1,8 @@
+plugins {
+    id 'com.enonic.xp.settings' version '4.0.0'
+    // Lets Gradle download the JDK named in build.gradle and gradle/gradle-daemon-jvm.properties
+    // when it is not installed, so ./gradlew works from any Java 17+ launcher.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = projectName

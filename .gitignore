@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+# The wrapper jar must stay in the repository so ./gradlew works after a clone.
+!gradle/wrapper/gradle-wrapper.jar
+
+# Enonic CLI: local sandbox settings
+.enonic
+
+# Node
+node_modules/
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and JVM crash dumps
+*.log
+hs_err_pid*
