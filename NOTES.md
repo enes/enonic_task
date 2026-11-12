@@ -93,3 +93,7 @@ keeps only what it contains, and `nextVersion` tells the caller where to continu
 ### What I would do next
 
 - Delete versions that nobody can ask for anymore. Today the store only grows.
+
+## Task 3: Code review
+
+The review and a note on the tests are in [task3/REVIEW.md](task3/REVIEW.md).
