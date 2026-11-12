@@ -82,9 +82,19 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
         return valueAt(key, version);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws IllegalArgumentException if {@code version} is negative or newer than {@link #currentVersion()}
+     */
     @Override
     public Optional<V> getAt(K key, long version) {
-        return Optional.empty();
+        Objects.requireNonNull(key, "key");
+        long current = this.version;
+        if (version < 0 || version > current) {
+            throw new IllegalArgumentException("version " + version + " is not in [0, " + current + "]");
+        }
+        return valueAt(key, version);
     }
 
     @Override
