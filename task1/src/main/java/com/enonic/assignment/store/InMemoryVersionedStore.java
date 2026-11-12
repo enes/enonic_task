@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> {
@@ -17,6 +18,11 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
      * Every change ever made to a key. Append-only.
      */
     private final ConcurrentMap<K, History<K, V>> histories = new ConcurrentHashMap<>();
+
+    /**
+     * Every committed change, by version. Append-only.
+     */
+    private final ConcurrentMap<Long, Change<K, V>> log = new ConcurrentHashMap<>();
 
     /**
      * The last committed version. Written only under {@link #lock}, as the last step of a write.
@@ -51,7 +57,7 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
     }
 
     /**
-     * Adds the change to the history, then publishes its version. The caller holds the write lock,
+     * Adds the change to both indexes, then publishes its version. The caller holds the write lock,
      * so looking the history up and then adding it is not a race. The only caller-supplied code on
      * this path, the key's {@code hashCode} and {@code equals}, runs in that lookup and insert; if it
      * throws, no change has been recorded.
@@ -65,6 +71,7 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
         } else {
             history.append(change);
         }
+        log.put(next, change);
         version = next; // the commit: from here on readers see this change
         return next;
     }
@@ -85,9 +92,28 @@ public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> 
         return version;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The upper bound is fixed when this method is called: the stream returns exactly the changes
+     * in {@code (sinceVersion, currentVersion()]} as of the call, however long it is held and however
+     * many writes follow. It can be consumed once, needs no closing and never throws
+     * {@code ConcurrentModificationException}. It references the whole change log, not just that
+     * range, so holding it keeps the log reachable even after the store itself is dropped.
+     *
+     * @throws IllegalArgumentException if {@code sinceVersion} is negative
+     */
     @Override
     public Stream<Change<K, V>> changesSince(long sinceVersion) {
-        return Stream.empty();
+        if (sinceVersion < 0) {
+            throw new IllegalArgumentException("sinceVersion must not be negative: " + sinceVersion);
+        }
+        long upTo = version;
+        if (sinceVersion >= upTo) {
+            return Stream.empty();
+        }
+        // log::get binds the log, not this store.
+        return LongStream.rangeClosed(sinceVersion + 1, upTo).mapToObj(log::get);
     }
 
     @Override
