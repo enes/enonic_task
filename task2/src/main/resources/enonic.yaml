@@ -1,0 +1,5 @@
+kind: "Application"
+title: "Content Inventory"
+description: "Reports how much content exists at and below a path, per content type."
+vendorName: "Enonic assignment"
+vendorUrl: "https://example.com"
