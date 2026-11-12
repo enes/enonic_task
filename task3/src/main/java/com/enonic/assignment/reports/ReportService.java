@@ -48,7 +48,10 @@ public class ReportService {
 
     public void exportAll(Collection<Report> reports) {
         for (Report report : reports) {
-            executor.submit(() -> export(report));
+            executor.submit(() -> {
+                export(report);
+                return null;
+            });
         }
         executor.shutdown();
     }
