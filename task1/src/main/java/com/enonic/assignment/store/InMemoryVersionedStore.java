@@ -12,6 +12,42 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
+/**
+ * An in-memory {@link VersionedStore} that keeps every version of every key.
+ *
+ * <h2>Thread safety</h2>
+ *
+ * <p><b>Writers run one at a time.</b> A writer takes the lock, adds its change to the history of
+ * the key and to the change log, and only then stores the new number in the {@code volatile} field
+ * {@code version}. That last step is the commit.
+ *
+ * <p><b>Readers take no lock</b>, and that includes {@code get}. They never block each other and
+ * never wait for a writer.
+ *
+ * <p><b>Readers never see half of a write.</b> A reader reads {@code version} once and ignores
+ * every entry with a higher number. A write that is not finished has a higher number, so it is
+ * invisible. Because {@code version} is volatile, a reader that sees {@code v} also sees
+ * everything the writer stored before it, so every entry up to {@code v} is there. Committed
+ * entries are never changed or removed.
+ *
+ * <p><b>{@code get} is O(1).</b> Each key keeps a pointer to its newest change. The pointer is
+ * updated before the commit, so it can be ahead of what a reader may see, but never behind. If
+ * its number is not higher than the version the reader has read, it is the answer. If it is
+ * higher, the reader searches the history of the key instead, in O(log h), where h is the number
+ * of changes to that key.
+ *
+ * <p><b>A snapshot is only a version number.</b> Taking one is O(1). Later writes only add entries
+ * with higher numbers, so they cannot change it.
+ *
+ * <h2>What callers receive</h2>
+ *
+ * <p>Nothing returned can change the store: maps are unmodifiable, changes are records and streams
+ * are read-only. Keys and values are stored as given, not copied, so they must not be changed
+ * after they are passed in.
+ *
+ * @param <K> key type, with stable {@code equals} and {@code hashCode}
+ * @param <V> value type
+ */
 public final class InMemoryVersionedStore<K, V> implements VersionedStore<K, V> {
 
     private final ReentrantLock lock = new ReentrantLock();
